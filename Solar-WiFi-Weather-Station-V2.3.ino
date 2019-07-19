@@ -26,7 +26,6 @@
   Needed libraries:
   <Adafruit_Sensor.h>    --> Adafruit unified sensor
   <Adafruit_BME280.h>    --> Adafrout BME280 sensor
-  <BlynkSimpleEsp8266.h> --> https://github.com/blynkkk/blynk-library
   <ESP8266WiFi.h>
   <WiFiUdp.h>
   "FS.h"
@@ -64,7 +63,7 @@
 
 ////  Features :  //////////////////////////////////////////////////////////////////////////////////////////////////////
                                                                                                                          
-// 1. Connect to Wi-Fi, and upload the data to either Blynk App and/or Thingspeak
+// 1. Connect to Wi-Fi, and upload the data to your server
 
 // 2. Monitoring Weather parameters like Temperature, Pressure abs, Pressure MSL and Humidity.
 
@@ -88,7 +87,6 @@
 
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
-#include <BlynkSimpleEsp8266.h>  //https://github.com/blynkkk/blynk-library
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 #include "FS.h"
@@ -148,10 +146,6 @@ void setup() {
   }
   Serial.println(" Wifi connected ok"); 
     
-  if (App1 == "BLYNK") {        // for posting data to Blynk App
-    Blynk.begin(auth, ssid, pass);
-  } 
-  
   //*****************Checking if SPIFFS available********************************
 
   Serial.println("SPIFFS Initialization: (First time run can last up to 30 sec - be patient)");
@@ -264,34 +258,17 @@ void setup() {
   }
   Serial.println("********************************************************");
 
-//**************************Sending Data to Blynk and ThingSpeak*********************************
-  // code block for uploading data to BLYNK App
-  
-  if (App1 == "BLYNK") {
-    Blynk.virtualWrite(0, measured_temp);            // virtual pin 0
-    Blynk.virtualWrite(1, measured_humi);            // virtual pin 1
-    Blynk.virtualWrite(2, measured_pres);            // virtual pin 2
-    Blynk.virtualWrite(3, rel_pressure_rounded);     // virtual pin 3
-    Blynk.virtualWrite(4, volt);                     // virtual pin 4
-    Blynk.virtualWrite(5, DewpointTemperature);      // virtual pin 5
-    Blynk.virtualWrite(6, HeatIndex);                // virtual pin 6
-    Blynk.virtualWrite(7, ZambrettisWords);          // virtual pin 7
-    Blynk.virtualWrite(8, accuracy_in_percent);      // virtual pin 8
-    Blynk.virtualWrite(9, trend_in_words);           // virtual pin 9
-    Blynk.virtualWrite(10,DewPointSpread);           // virtual pin 10
-    Serial.println("Data written to Blink ...");
-  } 
- //*******************************************************************************
- // code block for uploading data to Thingspeak website
- 
-  if (App2 == "Thingspeak") {
-  // Send data to ThingSpeak 
-    WiFiClient client;  
-    if (client.connect(server,80)) {
-      Serial.println("Connect to ThingSpeak - OK"); 
+//**************************Sending Data *********************************
+  // code block for uploading data
+
+  // Send data 
+    WiFiClientSecure client;
+    client.setInsecure();
+    if (client.connect(server,443)) {
+      Serial.println("Connect OK"); 
 
       String postStr = "";
-      postStr+="GET /update?api_key=";
+      postStr+="GET /weather/update.php?api_key=";
       postStr+=api_key;   
       postStr+="&field1=";
       postStr+=String(rel_pressure_rounded);
@@ -307,16 +284,23 @@ void setup() {
       postStr+=String(DewpointTemperature);  
       postStr+="&field7=";
       postStr+=String(HeatIndex);
+      postStr+="&field8=";
+      postStr+=String(ZambrettiLetter());
+      postStr+="&field9=";
+      postStr+=String(accuracy_in_percent);
+      postStr+="&field10=";
+      postStr+=String(DewPointSpread);
       postStr+=" HTTP/1.1\r\nHost: a.c.d\r\nConnection: close\r\n\r\n";
       postStr+="";
       client.print(postStr);
-      Serial.println("Data written to Thingspeak ...");
+      Serial.println("Data written ...");
+    } else {
+      Serial.println("Connect FAILED");
     }
     while(client.available()){
       String line = client.readStringUntil('\r');
       Serial.print(line);
     }
-  }
   goToSleep();                //over and out
   
 } // end of void setup()
