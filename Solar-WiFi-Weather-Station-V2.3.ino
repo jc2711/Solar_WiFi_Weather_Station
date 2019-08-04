@@ -94,9 +94,9 @@
 
 #define WITHDS18B20
 #ifdef WITHDS18B20
-#include <DallasTemperature.h>
+#include <DallasTemperature.h>  //https://github.com/milesburton/Arduino-Temperature-Control-Library
 #define ONE_WIRE_PIN D7
-OneWire oneWire(ONE_WIRE_PIN);
+OneWire oneWire(ONE_WIRE_PIN);  //https://www.pjrc.com/teensy/td_libs_OneWire.html
 DallasTemperature sensors(&oneWire);
 float temp2;
 #endif
@@ -200,7 +200,12 @@ void setup() {
   Serial.print(month(current_timestamp));         // needed later: month as integer for Zambretti calcualtion
   Serial.print(".");
   Serial.println(year(current_timestamp));      
-             
+
+#ifdef WITHDS18B20
+  //******** Start up the DS18B20  ******************** 
+  sensors.begin();
+#endif
+
   //******** GETTING RELATIVE PRESSURE DATA FROM SENSOR (BME680)  ******************** 
   
   bool bme_status;
