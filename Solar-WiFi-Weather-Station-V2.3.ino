@@ -1,6 +1,6 @@
 
 /*----------------------------------------------------------------------------------------------------
-  Project Name : Solar Powered WiFi Weather Station V2.31
+  Project Name : Solar Powered WiFi Weather Station Standalone V1.0
   Features: temperature, dewpoint, dewpoint spread, heat index, humidity, absolute pressure, relative pressure, battery status and
   the famous Zambretti Forecaster (multi lingual)
   Authors: Keith Hungerford, Debasish Dutta and Marc Stähli
@@ -59,7 +59,6 @@
 
   -added Dewpoint Spread
   -minor code corrections
-  
 
 ////  Features :  //////////////////////////////////////////////////////////////////////////////////////////////////////
                                                                                                                          
@@ -93,9 +92,20 @@
 #include <EasyNTPClient.h>       //https://github.com/aharshac/EasyNTPClient
 #include <TimeLib.h>             //https://github.com/PaulStoffregen/Time.git
 
+#define WITHDS18B20
+#ifdef WITHDS18B20
+#include <DallasTemperature.h>
+#define ONE_WIRE_PIN D7
+OneWire oneWire(ONE_WIRE_PIN);
+DallasTemperature sensors(&oneWire);
+float temp2;
+#endif
+
 Adafruit_BME280 bme;             // I2C
 WiFiUDP udp;
 EasyNTPClient ntpClient(udp, NTP_SERVER, TZ_SEC + DST_SEC);
+
+const char fingerprint[] PROGMEM = "8B 06 BB AC A6 10 6A DA 91 01 99 05 0C 21 AF 7A 81 BB 8E 3E";
 
 float measured_temp;
 float measured_humi;
@@ -117,7 +127,8 @@ float pressure_difference[12];      // Array to calculate trend with pressure di
 
 // FORECAST RESULT
 int accuracy;                       // Counter, if enough values for accurate forecasting
-String ZambrettisWords;             // Final statement about weather forecast
+int zambrettiValue;
+int trendValue;
 String trend_in_words;              // Trend in words
 
 void(* resetFunc) (void) = 0;       // declare reset function @ address 0
@@ -126,7 +137,7 @@ void setup() {
   
   Serial.begin(115200);
   Serial.println();
-  Serial.println("Start of SolarWiFiWeatherStation V2.31");
+  Serial.println("Start of SolarWiFiWeatherStation Standalone V1.0");
 
   // **************Application going online**********************************
   
@@ -240,11 +251,11 @@ void setup() {
   
   int accuracy_in_percent = accuracy*94/12;            // 94% is the max predicion accuracy of Zambretti
 
-  ZambrettisWords = ZambrettiSays(char(ZambrettiLetter()));
+  zambrettiValue = ZambrettiValue();
   
   Serial.println("********************************************************");
   Serial.print("Zambretti says: ");
-  Serial.print(ZambrettisWords);
+  Serial.print(ZambrettiSays(zambrettiValue));
   Serial.print(", ");
   Serial.println(trend_in_words);
   Serial.print("Prediction accuracy: ");
@@ -261,35 +272,44 @@ void setup() {
 //**************************Sending Data *********************************
   // code block for uploading data
 
-  // Send data 
+  // Send data
     WiFiClientSecure client;
+
     client.setInsecure();
+//    client.setFingerprint(fingerprint);
+
     if (client.connect(server,443)) {
       Serial.println("Connect OK"); 
 
       String postStr = "";
-      postStr+="GET /weather/update.php?api_key=";
+      postStr+="GET /weather/updateV2.php?api_key=";
       postStr+=api_key;   
-      postStr+="&field1=";
+      postStr+="&relPres=";
       postStr+=String(rel_pressure_rounded);
-      postStr+="&field2=";
+      postStr+="&measTemp=";
       postStr+=String(measured_temp);
-      postStr+="&field3=";
+      postStr+="&measHumi=";
       postStr+=String(measured_humi);
-      postStr+="&field4=";
+      postStr+="&volt=";
       postStr+=String(volt);
-      postStr+="&field5=";
+      postStr+="&measPres=";
       postStr+=String(measured_pres);  
-      postStr+="&field6=";
+      postStr+="&dewTemp=";
       postStr+=String(DewpointTemperature);  
-      postStr+="&field7=";
+      postStr+="&heatInd=";
       postStr+=String(HeatIndex);
-      postStr+="&field8=";
-      postStr+=String(ZambrettiLetter());
-      postStr+="&field9=";
+      postStr+="&zambVal=";
+      postStr+=String(zambrettiValue);
+      postStr+="&accuracy=";
       postStr+=String(accuracy_in_percent);
-      postStr+="&field10=";
+      postStr+="&dewSpre=";
       postStr+=String(DewPointSpread);
+      postStr+="&zambTre=";
+      postStr+=String(trendValue);
+#ifdef WITHDS18B20
+      postStr+="&temp2=";
+      postStr+=String(temp2);
+#endif
       postStr+=" HTTP/1.1\r\nHost: a.c.d\r\nConnection: close\r\n\r\n";
       postStr+="";
       client.print(postStr);
@@ -309,7 +329,16 @@ void loop() {                //loop is not used
 } // end of void loop()
 
 void measurementEvent() { 
-    
+
+#ifdef WITHDS18B20
+  // DS18B20
+  sensors.requestTemperatures();
+  temp2 = (sensors.getTempCByIndex(0));
+  Serial.print("DS18B20 Temp: ");
+  Serial.print(temp2);
+  Serial.print("°C; ");
+#endif
+
   //Measures absolute Pressure, Temperature, Humidity, Voltage, calculate relative pressure, 
   //Dewpoint, Dewpoint Spread, Heat Index
   
@@ -383,7 +412,7 @@ void measurementEvent() {
   //******Battery Voltage Monitoring*********************************************
   
   // Voltage divider R1 = 220k+100k+220k =540k and R2=100k
-  float calib_factor = 5.28; // change this value to calibrate the battery voltage
+  float calib_factor = 6.62; // change this value to calibrate the battery voltage
   unsigned long raw = analogRead(A0);
   volt = raw * calib_factor/1024; 
   
@@ -430,29 +459,36 @@ int CalculateTrend(){
 
   if      (pressure_difference[11] > 3.5) {
     trend_in_words = TEXT_RISING_FAST;
+    trendValue = 1;
     trend = 1;}
   else if (pressure_difference[11] > 1.5   && pressure_difference[11] <= 3.5)  {
     trend_in_words = TEXT_RISING;
+    trendValue = 2;
     trend = 1;
   }
   else if (pressure_difference[11] > 0.25  && pressure_difference[11] <= 1.5)  {
     trend_in_words = TEXT_RISING_SLOW;
+    trendValue = 3;
     trend = 1;
   }
   else if (pressure_difference[11] > -0.25 && pressure_difference[11] < 0.25)  {
     trend_in_words = TEXT_STEADY;
+    trendValue = 4;
     trend = 0;
   }
   else if (pressure_difference[11] >= -1.5 && pressure_difference[11] < -0.25) {
     trend_in_words = TEXT_FALLING_SLOW;
+    trendValue = 5;
     trend = -1;
   }
   else if (pressure_difference[11] >= -3.5 && pressure_difference[11] < -1.5)  {
     trend_in_words = TEXT_FALLING;
+    trendValue = 6;
     trend = -1;
   }
   else if (pressure_difference[11] <= -3.5) {
     trend_in_words = TEXT_FALLING_FAST;
+    trendValue = 7;
     trend = -1;
   }
 
@@ -460,9 +496,9 @@ int CalculateTrend(){
   return trend;
 }
 
-char ZambrettiLetter() {
+char ZambrettiValue() {
   Serial.println("---> Calculating Zambretti letter");
-  char z_letter;
+  int z_value;
   int(z_trend) = CalculateTrend();
   // Case trend is falling
   if (z_trend == -1) {
@@ -471,16 +507,16 @@ char ZambrettiLetter() {
     Serial.print("Calculated and rounded Zambretti in numbers: ");
     Serial.println(round(zambretti));
     switch (int(round(zambretti))) {
-      case 0:  z_letter = 'A'; break;       //Settled Fine
-      case 1:  z_letter = 'A'; break;       //Settled Fine
-      case 2:  z_letter = 'B'; break;       //Fine Weather
-      case 3:  z_letter = 'D'; break;       //Fine Becoming Less Settled
-      case 4:  z_letter = 'H'; break;       //Fairly Fine Showers Later
-      case 5:  z_letter = 'O'; break;       //Showery Becoming unsettled
-      case 6:  z_letter = 'R'; break;       //Unsettled, Rain later
-      case 7:  z_letter = 'U'; break;       //Rain at times, worse later
-      case 8:  z_letter = 'V'; break;       //Rain at times, becoming very unsettled
-      case 9:  z_letter = 'X'; break;       //Very Unsettled, Rain
+      case 0:  z_value = 1;  break;       //Settled Fine
+      case 1:  z_value = 1;  break;       //Settled Fine
+      case 2:  z_value = 2;  break;       //Fine Weather
+      case 3:  z_value = 4;  break;       //Fine Becoming Less Settled
+      case 4:  z_value = 8;  break;       //Fairly Fine Showers Later
+      case 5:  z_value = 15; break;       //Showery Becoming unsettled
+      case 6:  z_value = 18; break;       //Unsettled, Rain later
+      case 7:  z_value = 21; break;       //Rain at times, worse later
+      case 8:  z_value = 22; break;       //Rain at times, becoming very unsettled
+      case 9:  z_value = 24; break;       //Very Unsettled, Rain
     }
   }
   // Case trend is steady
@@ -489,17 +525,17 @@ char ZambrettiLetter() {
     Serial.print("Calculated and rounded Zambretti in numbers: ");
     Serial.println(round(zambretti));
     switch (int(round(zambretti))) {
-      case 0:  z_letter = 'A'; break;       //Settled Fine
-      case 1:  z_letter = 'A'; break;       //Settled Fine
-      case 2:  z_letter = 'B'; break;       //Fine Weather
-      case 3:  z_letter = 'E'; break;       //Fine, Possibly showers
-      case 4:  z_letter = 'K'; break;       //Fairly Fine, Showers likely
-      case 5:  z_letter = 'N'; break;       //Showery Bright Intervals
-      case 6:  z_letter = 'P'; break;       //Changeable some rain
-      case 7:  z_letter = 'S'; break;       //Unsettled, rain at times
-      case 8:  z_letter = 'W'; break;       //Rain at Frequent Intervals
-      case 9:  z_letter = 'X'; break;       //Very Unsettled, Rain
-      case 10: z_letter = 'Z'; break;       //Stormy, much rain
+      case 0:  z_value = 1;  break;       //Settled Fine
+      case 1:  z_value = 1;  break;       //Settled Fine
+      case 2:  z_value = 2;  break;       //Fine Weather
+      case 3:  z_value = 5;  break;       //Fine, Possibly showers
+      case 4:  z_value = 11; break;       //Fairly Fine, Showers likely
+      case 5:  z_value = 14; break;       //Showery Bright Intervals
+      case 6:  z_value = 16; break;       //Changeable some rain
+      case 7:  z_value = 19; break;       //Unsettled, rain at times
+      case 8:  z_value = 23; break;       //Rain at Frequent Intervals
+      case 9:  z_value = 24; break;       //Very Unsettled, Rain
+      case 10: z_value = 26; break;       //Stormy, much rain
     }
   }
   // Case trend is rising
@@ -510,57 +546,57 @@ char ZambrettiLetter() {
     Serial.print("Calculated and rounded Zambretti in numbers: ");
     Serial.println(round(zambretti));
     switch (int(round(zambretti))) {
-      case 0:  z_letter = 'A'; break;       //Settled Fine
-      case 1:  z_letter = 'A'; break;       //Settled Fine
-      case 2:  z_letter = 'B'; break;       //Fine Weather
-      case 3:  z_letter = 'C'; break;       //Becoming Fine
-      case 4:  z_letter = 'F'; break;       //Fairly Fine, Improving
-      case 5:  z_letter = 'G'; break;       //Fairly Fine, Possibly showers, early
-      case 6:  z_letter = 'I'; break;       //Showery Early, Improving
-      case 7:  z_letter = 'J'; break;       //Changeable, Improving
-      case 8:  z_letter = 'L'; break;       //Rather Unsettled Clearing Later
-      case 9:  z_letter = 'M'; break;       //Unsettled, Probably Improving
-      case 10: z_letter = 'Q'; break;       //Unsettled, short fine Intervals
-      case 11: z_letter = 'T'; break;       //Very Unsettled, Finer at times
-      case 12: z_letter = 'Y'; break;       //Stormy, possibly improving
-      case 13: z_letter = 'Z'; break;;      //Stormy, much rain
+      case 0:  z_value = 1;  break;       //Settled Fine
+      case 1:  z_value = 1;  break;       //Settled Fine
+      case 2:  z_value = 2;  break;       //Fine Weather
+      case 3:  z_value = 3;  break;       //Becoming Fine
+      case 4:  z_value = 6;  break;       //Fairly Fine, Improving
+      case 5:  z_value = 7;  break;       //Fairly Fine, Possibly showers, early
+      case 6:  z_value = 9;  break;       //Showery Early, Improving
+      case 7:  z_value = 10; break;       //Changeable, Improving
+      case 8:  z_value = 12; break;       //Rather Unsettled Clearing Later
+      case 9:  z_value = 13; break;       //Unsettled, Probably Improving
+      case 10: z_value = 17; break;       //Unsettled, short fine Intervals
+      case 11: z_value = 20; break;       //Very Unsettled, Finer at times
+      case 12: z_value = 25; break;       //Stormy, possibly improving
+      case 13: z_value = 26; break;       //Stormy, much rain
     }
   }
-  Serial.print("This is Zambretti's famous letter: ");
-  Serial.println(z_letter);
-  return z_letter;
+  Serial.print("This is Zambretti's famous value: ");
+  Serial.println(z_value);
+  return z_value;
 }
 
-String ZambrettiSays(char code){
+String ZambrettiSays(int value){
   String zambrettis_words = "";
-  switch (code) {
-  case 'A': zambrettis_words = TEXT_ZAMBRETTI_A; break;  //see Tranlation.h
-  case 'B': zambrettis_words = TEXT_ZAMBRETTI_B; break;
-  case 'C': zambrettis_words = TEXT_ZAMBRETTI_C; break;
-  case 'D': zambrettis_words = TEXT_ZAMBRETTI_D; break;
-  case 'E': zambrettis_words = TEXT_ZAMBRETTI_E; break;
-  case 'F': zambrettis_words = TEXT_ZAMBRETTI_F; break;
-  case 'G': zambrettis_words = TEXT_ZAMBRETTI_G; break;
-  case 'H': zambrettis_words = TEXT_ZAMBRETTI_H; break;
-  case 'I': zambrettis_words = TEXT_ZAMBRETTI_I; break;
-  case 'J': zambrettis_words = TEXT_ZAMBRETTI_J; break;
-  case 'K': zambrettis_words = TEXT_ZAMBRETTI_K; break;
-  case 'L': zambrettis_words = TEXT_ZAMBRETTI_L; break;
-  case 'M': zambrettis_words = TEXT_ZAMBRETTI_M; break;
-  case 'N': zambrettis_words = TEXT_ZAMBRETTI_N; break;
-  case 'O': zambrettis_words = TEXT_ZAMBRETTI_O; break;
-  case 'P': zambrettis_words = TEXT_ZAMBRETTI_P; break; 
-  case 'Q': zambrettis_words = TEXT_ZAMBRETTI_Q; break;
-  case 'R': zambrettis_words = TEXT_ZAMBRETTI_R; break;
-  case 'S': zambrettis_words = TEXT_ZAMBRETTI_S; break;
-  case 'T': zambrettis_words = TEXT_ZAMBRETTI_T; break;
-  case 'U': zambrettis_words = TEXT_ZAMBRETTI_U; break;
-  case 'V': zambrettis_words = TEXT_ZAMBRETTI_V; break;
-  case 'W': zambrettis_words = TEXT_ZAMBRETTI_W; break;
-  case 'X': zambrettis_words = TEXT_ZAMBRETTI_X; break;
-  case 'Y': zambrettis_words = TEXT_ZAMBRETTI_Y; break;
-  case 'Z': zambrettis_words = TEXT_ZAMBRETTI_Z; break;
-   default: zambrettis_words = TEXT_ZAMBRETTI_DEFAULT; break;
+  switch (value) {
+  case 1 : zambrettis_words = TEXT_ZAMBRETTI_A; break;  //see Tranlation.h
+  case 2 : zambrettis_words = TEXT_ZAMBRETTI_B; break;
+  case 3 : zambrettis_words = TEXT_ZAMBRETTI_C; break;
+  case 4 : zambrettis_words = TEXT_ZAMBRETTI_D; break;
+  case 5 : zambrettis_words = TEXT_ZAMBRETTI_E; break;
+  case 6 : zambrettis_words = TEXT_ZAMBRETTI_F; break;
+  case 7 : zambrettis_words = TEXT_ZAMBRETTI_G; break;
+  case 8 : zambrettis_words = TEXT_ZAMBRETTI_H; break;
+  case 9 : zambrettis_words = TEXT_ZAMBRETTI_I; break;
+  case 10: zambrettis_words = TEXT_ZAMBRETTI_J; break;
+  case 11: zambrettis_words = TEXT_ZAMBRETTI_K; break;
+  case 12: zambrettis_words = TEXT_ZAMBRETTI_L; break;
+  case 13: zambrettis_words = TEXT_ZAMBRETTI_M; break;
+  case 14: zambrettis_words = TEXT_ZAMBRETTI_N; break;
+  case 15: zambrettis_words = TEXT_ZAMBRETTI_O; break;
+  case 16: zambrettis_words = TEXT_ZAMBRETTI_P; break; 
+  case 17: zambrettis_words = TEXT_ZAMBRETTI_Q; break;
+  case 18: zambrettis_words = TEXT_ZAMBRETTI_R; break;
+  case 19: zambrettis_words = TEXT_ZAMBRETTI_S; break;
+  case 20: zambrettis_words = TEXT_ZAMBRETTI_T; break;
+  case 21: zambrettis_words = TEXT_ZAMBRETTI_U; break;
+  case 22: zambrettis_words = TEXT_ZAMBRETTI_V; break;
+  case 23: zambrettis_words = TEXT_ZAMBRETTI_W; break;
+  case 24: zambrettis_words = TEXT_ZAMBRETTI_X; break;
+  case 25: zambrettis_words = TEXT_ZAMBRETTI_Y; break;
+  case 26: zambrettis_words = TEXT_ZAMBRETTI_Z; break;
+  default: zambrettis_words = TEXT_ZAMBRETTI_DEFAULT; break;
   }
   return zambrettis_words;
 }

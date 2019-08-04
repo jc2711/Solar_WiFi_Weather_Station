@@ -17,7 +17,7 @@ const char* api_key = "your API key";                // API write key
 
 #define LANGUAGE 'DE'               //either 'DE' for German or 'EN' for English
 
-#define TEMP_CORR (-1)              //Manual correction of temp sensor (mine reads 1 degree too high)
+#define TEMP_CORR (0)               //Manual correction of temp sensor
 #define ELEVATION (45)              //Enter your elevation in m ASL to calculate rel pressure (ASL/QNH) at your place
 
 #define sleepTimeMin (5)            //setting of deepsleep time in minutes (default: 10)
