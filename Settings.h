@@ -31,3 +31,12 @@ const char* api_key = "your API key";                // API write key
 #define DST_SEC         ((DST_MN)*60)// don't change this
 
 /****************************************************************************/
+/***************************************************************************/
+#define WITHDS18B20
+
+/****** MQTT Settings ********************************************************/
+#define WITHMQTT
+const char* mqtt_server = "192.xxx.xxx.xxx";      // MQTT Server (broker) address
+const char* mqtt_user = "USER";
+const char* mqtt_password = "PASSWORD";
+const String mqtt_id = "solarweatherstation";

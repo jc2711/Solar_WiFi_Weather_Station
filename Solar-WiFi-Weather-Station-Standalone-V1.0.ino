@@ -92,13 +92,18 @@
 #include <EasyNTPClient.h>       //https://github.com/aharshac/EasyNTPClient
 #include <TimeLib.h>             //https://github.com/PaulStoffregen/Time.git
 
-#define WITHDS18B20
 #ifdef WITHDS18B20
 #include <DallasTemperature.h>  //https://github.com/milesburton/Arduino-Temperature-Control-Library
 #define ONE_WIRE_PIN D7
 OneWire oneWire(ONE_WIRE_PIN);  //https://www.pjrc.com/teensy/td_libs_OneWire.html
 DallasTemperature sensors(&oneWire);
 float temp2;
+#endif
+
+#ifdef WITHMQTT
+#include <PubSubClient.h>        // For MQTT (in this case publishing only)
+WiFiClient espClient;               // MQTT
+PubSubClient mqttclient(espClient);     // MQTT
 #endif
 
 Adafruit_BME280 bme;             // I2C
@@ -156,7 +161,11 @@ void setup() {
   Serial.print(".");
   }
   Serial.println(" Wifi connected ok"); 
-    
+
+#ifdef WITHMQTT
+  connect_to_MQTT();            // connecting to MQTT broker
+#endif
+
   //*****************Checking if SPIFFS available********************************
 
   Serial.println("SPIFFS Initialization: (First time run can last up to 30 sec - be patient)");
@@ -326,8 +335,99 @@ void setup() {
       String line = client.readStringUntil('\r');
       Serial.print(line);
     }
+
+#ifdef WITHMQTT
+  //*******************************************************************************
+  // code block for publishing all data to MQTT
+  String tmpId;
+
+  char _measured_temp[8];                                // Buffer big enough for 7-character float
+  dtostrf(measured_temp, 3, 1, _measured_temp);               // Leave room for too large numbers!
+
+  tmpId = "home/weather/" + mqtt_id + "/tempc";
+  mqttclient.publish(tmpId.c_str(), _measured_temp, 1);      // ,1 = retained
+  delay(50);
+
+#ifdef WITHDS18B20
+  char _temp2[8];                                // Buffer big enough for 7-character float
+  dtostrf(temp2, 3, 1, _temp2);               // Leave room for too large numbers!
+
+  tmpId = "home/weather/" + mqtt_id + "/temp2c";
+  mqttclient.publish(tmpId.c_str(), _temp2, 1);      // ,1 = retained
+  delay(50);
+#endif
+
+  char _measured_humi[8];                                // Buffer big enough for 7-character float
+  dtostrf(measured_humi, 3, 0, _measured_humi);               // Leave room for too large numbers!
+
+  tmpId = "home/weather/" + mqtt_id + "/humi";
+  mqttclient.publish(tmpId.c_str(), _measured_humi, 1);      // ,1 = retained
+  delay(50);
+
+  char _measured_pres[8];                                // Buffer big enough for 7-character float
+  dtostrf(measured_pres, 3, 0, _measured_pres);               // Leave room for too large numbers!
+
+  tmpId = "home/weather/" + mqtt_id + "/abshpa";
+  mqttclient.publish(tmpId.c_str(), _measured_pres, 1);      // ,1 = retained
+  delay(50);
+
+  char _rel_pressure_rounded[8];                                // Buffer big enough for 7-character float
+  dtostrf(rel_pressure_rounded, 3, 0, _rel_pressure_rounded);               // Leave room for too large numbers!
+
+  tmpId = "home/weather/" + mqtt_id + "/relhpa";
+  mqttclient.publish(tmpId.c_str(), _rel_pressure_rounded, 1);      // ,1 = retained
+  delay(50);
+
+  char _volt[8];                                // Buffer big enough for 7-character float
+  dtostrf(volt, 3, 2, _volt);               // Leave room for too large numbers!
+
+  tmpId = "home/weather/" + mqtt_id + "/battv";
+  mqttclient.publish(tmpId.c_str(), _volt, 1);      // ,1 = retained
+  delay(50);
+
+  char _DewpointTemperature[8];                                // Buffer big enough for 7-character float
+  dtostrf(DewpointTemperature, 3, 1, _DewpointTemperature);               // Leave room for too large numbers!
+
+  tmpId = "home/weather/" + mqtt_id + "/dewpointc";
+  mqttclient.publish(tmpId.c_str(), _DewpointTemperature, 1);      // ,1 = retained
+  delay(50);
+
+  char _HeatIndex[8];                                // Buffer big enough for 7-character float
+  dtostrf(HeatIndex, 3, 1, _HeatIndex);               // Leave room for too large numbers!
+
+  tmpId = "home/weather/" + mqtt_id + "/heatindexc";
+  mqttclient.publish(tmpId.c_str(), _HeatIndex, 1);      // ,1 = retained
+  delay(50);
+
+  char _accuracy_in_percent[8];                                // Buffer big enough for 7-character float
+  dtostrf(accuracy_in_percent, 3, 0, _accuracy_in_percent);               // Leave room for too large numbers!
+
+  tmpId = "home/weather/" + mqtt_id + "/accuracy";
+  mqttclient.publish(tmpId.c_str(), _accuracy_in_percent, 1);      // ,1 = retained
+  delay(50);
+
+  char _DewPointSpread[8];                                // Buffer big enough for 7-character float
+  dtostrf(DewPointSpread, 3, 1, _DewPointSpread);               // Leave room for too large numbers!
+
+  tmpId = "home/weather/" + mqtt_id + "/spreadc";
+  mqttclient.publish(tmpId.c_str(), _DewPointSpread, 1);      // ,1 = retained
+  delay(50);
+
+  char tmp1[128];
+  String zamwords = ZambrettiSays(zambrettiValue);
+  zamwords.toCharArray(tmp1, 128);
+  tmpId = "home/weather/" + mqtt_id + "/zambrettisays";
+  mqttclient.publish(tmpId.c_str(), tmp1, 1);
+  delay(50);
+
+  char tmp2[128];
+  trend_in_words.toCharArray(tmp2, 128);
+  tmpId = "home/weather/" + mqtt_id + "/trendinwords";
+  mqttclient.publish(tmpId.c_str(), tmp2, 1);
+  delay(50);
+#endif
+
   goToSleep();                //over and out
-  
 } // end of void setup()
 
 void loop() {                //loop is not used
@@ -693,3 +793,40 @@ void goToSleep() {
   
   ESP.deepSleep(sleepTimeMin * 60 * 1000000); // convert to microseconds
 }
+
+#ifdef WITHMQTT
+void connect_to_MQTT() {
+  Serial.print("---> Connecting to MQTT, ");
+  mqttclient.setServer(mqtt_server, 1883);
+  
+  while (!mqttclient.connected()) {
+    Serial.println("reconnecting MQTT...");
+    reconnect(); 
+  }
+  Serial.println("MQTT connected ok.");
+} //end connect_to_MQTT
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!mqttclient.connected()) {
+    Serial.print("Attempting MQTT connection with ");
+    // Create a random client ID
+    String clientId = "ESP8266Client-";
+    clientId += String(random(0xffff), HEX);
+    Serial.print(clientId.c_str());
+    // Attempt to connect
+    if (mqttclient.connect(clientId.c_str(), mqtt_user, mqtt_password)) {
+      Serial.println("connected");
+       // Once connected, publish an announcement...
+      mqttclient.publish("home/debug", "SolarWeatherstation: client started...");
+      delay(50);
+    } else {
+      Serial.print(" ...failed, rc=");
+      Serial.print(mqttclient.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+} //end void reconnect*/
+#endif
