@@ -324,7 +324,9 @@ void setup() {
       postStr+="&temp2=";
       postStr+=String(temp2);
 #endif
-      postStr+=" HTTP/1.1\r\nHost: a.c.d\r\nConnection: close\r\n\r\n";
+      postStr+=" HTTP/1.1\r\nHost: ";
+      postStr+=String(server);
+      postStr+="\r\nConnection: close\r\n\r\n";
       postStr+="";
       client.print(postStr);
       Serial.println("Data written ...");
